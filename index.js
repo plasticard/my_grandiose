@@ -13,21 +13,33 @@
   limitations under the License.
 */
 
-const addon = require("pkg-prebuilds")(
-  __dirname,
-  require("./binding-options")
-);
-const { promisify } = require('util')
-const setTimeoutPromise = promisify(setTimeout)
+const path = require("path")
 
-// TODO: reenable segfault-handler when the NDI lib is fixed
-// const SegfaultHandler = require('segfault-handler');
-// SegfaultHandler.registerHandler("crash.log"); // With no argument, SegfaultHandler will generate a generic log file name
+const addon = require('bindings')({
+  bindings: "grandiose",
+  module_root: path.resolve(__dirname)
+});
 
 const COLOR_FORMAT_BGRX_BGRA = 0; // No alpha channel: BGRX, Alpha channel: BGRA
 const COLOR_FORMAT_UYVY_BGRA = 1; // No alpha channel: UYVY, Alpha channel: BGRA
 const COLOR_FORMAT_RGBX_RGBA = 2; // No alpha channel: RGBX, Alpha channel: RGBA
 const COLOR_FORMAT_UYVY_RGBA = 3; // No alpha channel: UYVY, Alpha channel: RGBA
+
+const NDI_LIB_FOURCC = (ch0, ch1, ch2, ch3) =>
+	(ch0.charCodeAt(0) | (ch1.charCodeAt(0) << 8) | (ch2.charCodeAt(0) << 16) | (ch3.charCodeAt(0) << 24))
+
+const FOURCC_UYVY = NDI_LIB_FOURCC("U", "Y", "V", "Y")
+const FOURCC_UYVA = NDI_LIB_FOURCC("U", "Y", "V", "A")
+const FOURCC_P216 = NDI_LIB_FOURCC("P", "2", "1", "6")
+const FOURCC_PA16 = NDI_LIB_FOURCC("P", "A", "1", "6")
+const FOURCC_YV12 = NDI_LIB_FOURCC("Y", "V", "1", "2")
+const FOURCC_I420 = NDI_LIB_FOURCC("I", "4", "2", "0")
+const FOURCC_NV12 = NDI_LIB_FOURCC("N", "V", "1", "2")
+const FOURCC_BGRA = NDI_LIB_FOURCC("B", "G", "R", "A")
+const FOURCC_BGRX = NDI_LIB_FOURCC("B", "G", "R", "X")
+const FOURCC_RGBA = NDI_LIB_FOURCC("R", "G", "B", "A")
+const FOURCC_RGBX = NDI_LIB_FOURCC("R", "G", "B", "X")
+const FOURCC_FLTp = NDI_LIB_FOURCC("F", "L", "T", "p")
 
 // On Windows there are some APIs that require bottom to top images in RGBA format. Specifying
 // this format will return images in this format. The image data pointer will still point to the
@@ -57,65 +69,32 @@ const AUDIO_FORMAT_FLOAT_32_INTERLEAVED = 1;
 // Channels stored as channel-interleaved 16-bit integer values
 const AUDIO_FORMAT_INT_16_INTERLEAVED = 2;
 
-class GrandioseFinder{
-  #addon
-
-  constructor(options) {
-    const newOptions = options ? {
-      showLocalSources: options.showLocalSources,
-      groups: Array.isArray(options.groups) ? options.groups.join(','):options.groups,
-      extraIPs: Array.isArray(options.extraIPs) ? options.extraIPs.join(','):options.extraIPs,
-    } : undefined
-    this.#addon = new addon.GrandioseFinder(newOptions)
+let find = function (...args) {
+  if (args.length === 0) return addon.find();
+  if (Array.isArray(args[0].groups)) {
+    args[0].groups = args[0].groups.reduce((x, y) => x + ',' + y);
   }
-
-  dispose(...args) {
-    return this.#addon.dispose(...args)
+  if (Array.isArray(args[0].extraIPs)) {
+    args[0].extraIPs = args[0].extraIPs.reduce((x, y) => x + ',' + y);
   }
-
-  getCurrentSources(...args) { 
-    return this.#addon.getCurrentSources(...args)
-  }
-}
-
-// API compataibility in a find implemenation
-async function findCompat(options = {}, waitMs = 0) {
-  if (options.showLocalSources === undefined) options.showLocalSources = true
-  const finder = new GrandioseFinder(options)
-
-  if (!waitMs || typeof waitMs !== 'number') waitMs = 10000
-  const maxTime = Date.now() + waitMs
-
-  try {
-    // Until the timeout has been reached
-    while(Date.now() < maxTime) {
-      // Sleep for a short period
-      await setTimeoutPromise(50)
-
-      // Check if any have been found
-      const sources = finder.getCurrentSources()
-      if (sources.length > 0) {
-        return sources
-      }
-    }
-
-    throw new Error('No sources were found')
-
-  } finally {
-    finder.dispose()
-  }
+  return addon.find.apply(null, args);
 }
 
 module.exports = {
   version: addon.version,
-  find: findCompat,
-  GrandioseFinder: GrandioseFinder,
   isSupportedCPU: addon.isSupportedCPU,
+  initialize: addon.initialize,
+  destroy: addon.destroy,
+  find: find,
   receive: addon.receive,
   send: addon.send,
+  routing: addon.routing,
   COLOR_FORMAT_BGRX_BGRA, COLOR_FORMAT_UYVY_BGRA,
   COLOR_FORMAT_RGBX_RGBA, COLOR_FORMAT_UYVY_RGBA,
   COLOR_FORMAT_BGRX_BGRA_FLIPPED, COLOR_FORMAT_FASTEST,
+  FOURCC_UYVY, FOURCC_UYVA, FOURCC_P216, FOURCC_PA16, FOURCC_YV12,
+  FOURCC_I420, FOURCC_NV12, FOURCC_BGRA, FOURCC_BGRX, FOURCC_RGBA, FOURCC_RGBX,
+  FOURCC_FLTp,
   BANDWIDTH_METADATA_ONLY, BANDWIDTH_AUDIO_ONLY,
   BANDWIDTH_LOWEST, BANDWIDTH_HIGHEST,
   FORMAT_TYPE_PROGRESSIVE, FORMAT_TYPE_INTERLACED,

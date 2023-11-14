@@ -1,15 +1,30 @@
 # Grandiose
 [Node.js](http://nodejs.org/) native bindings to NewTek NDI(tm). For more information on NDI(tm), see:
 
-http://NDI.NewTek.com/
+https://www.ndi.tv/
 
 This module will allow a Node.JS program to find, receive and send NDI(tm) video, audio and metadata streams over IP networks. All calls a asynchronous and use Javascript promises with all of the underlying work of NDI running on separate threads from the event loop.
 
 NDI(tm) is a realisation of a grand vision for what IP media streams should and can be, hence a steampunk themed name of _gra-NDI-ose_.
 
+Fork Information
+----------------
+
+This is [Dr. Ralf S. Engelschall](http://engelschall.com)'s indirect fork
+of the original [Streampunk Grandiose](https://github.com/Streampunk/grandiose) codebase.
+The differences against the original codebase are:
+
+- audio frame sending support from the [rse/grandiose](https://github.com/rse/grandiose) fork.
+- ad-hoc download of NDI SDK 5.0.0 from the [rse/grandiose](https://github.com/rse/grandiose) fork.
+- portability fixes for clean compile under Windows, macOS and Linux from the [rse/grandiose](https://github.com/rse/grandiose) fork.
+- portability fixes for macOS from the [danjenkins/grandiose](https://github.com/danjenkins/grandiose) fork.
+- NDI Sender functionality from the [ianshade/grandiose](https://github.com/ianshade/grandiose) fork.
+- TypeScript type definitions from the [ianshade/grandiose](https://github.com/ianshade/grandiose) fork.
+- NDI Routing functionality from scratch.
+
 ## Installation
 
-Grandiose supports Windows (x64), MacOS (x64 & arm64) as well as Linux (x64 only). Additional platforms may be added in the future.
+Grandiose supports the Windows/x86, Windows/x64, macOS/x64, Linux/x86 and Linux/x64 platforms at this time only.
 
 Install [Node.js](http://nodejs.org/) for your platform. This software has been developed against the long term stable (LTS) release.
 
@@ -28,13 +43,11 @@ Grandiose is designed to be `require`d to use from your own application to provi
 A list of all currently available NDI(tm) sources available on the current local area network (or VLAN) can be retrieved. For example, to print a list of sources to the console, try:
 
 ```javascript
-const { GrandioseFinder } = require('grandiose');
+const grandiose = require('grandiose');
 
-const finder = new GrandioseFinder()
-setTimeout(() => {
-  // Log the discovered sources after 1000ms wait
-  console.log(finder.getCurrentSources())
-}, 1000)
+grandiose.find()
+  .then(console.log)
+  .catch(console.error);
 ```
 
 The result is an array, for example here are some local sources to machine :
@@ -48,9 +61,9 @@ The result is an array, for example here are some local sources to machine :
     urlAddress: '169.254.82.1:5963' } ]
 ```
 
-The finder can be configured with an options object and a wait time in measured in milliseconds:
+The find operation can be configured with an options object and a wait time in measured in milliseconds:
 
-    new GrandioseFinder(<opts>);
+    grandiose.find(<opts>, <wait_time>);
 
 The options are as follows:
 
@@ -240,7 +253,7 @@ Apart from the exceptions in the following section, this software is released un
 The software uses libraries provided under a royalty-free license from NewTek, Inc..
 
 * The `include` files are licensed separately by a NewTek under the MIT license.
-* The NDI SDK library files are provided for convenience of installation and are covered by the NewTek license contained in the `lib` folder.
+* The DLL and library are provided for convenience of installation and are covered by the NewTek license contained in the `lib` folder.
 
 ## Trademarks
 

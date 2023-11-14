@@ -43,6 +43,7 @@ export interface Receiver {
 
 export interface Sender {
   embedded: unknown
+  destroy: () => Promise<void>
   video: (frame: VideoFrame) => Promise<void>
   audio: (frame: AudioFrame) => Promise<void>
   name: string
@@ -51,10 +52,20 @@ export interface Sender {
   clockAudio: boolean
 }
 
+export interface Routing {
+  name: string
+  groups?: string
+  embedded: unknown
+  destroy: () => Promise<void>
+  change: (Source) => number
+  clear: () => boolean
+  connections: () => number
+  sourcename: () => string
+}
+
 export interface Source {
   name: string
   urlAddress?: string
-  ipAddress?: string
 }
 
 export const enum FrameType {
@@ -63,10 +74,6 @@ export const enum FrameType {
   Field0 = 2,
   Field1 = 3,
 }
-export const FORMAT_TYPE_PROGRESSIVE: FrameType
-export const FORMAT_TYPE_INTERLACED: FrameType
-export const FORMAT_TYPE_FIELD_0: FrameType
-export const FORMAT_TYPE_FIELD_1: FrameType
 
 export const enum ColorFormat {
   BGRX_BGRA = 0,
@@ -76,13 +83,6 @@ export const enum ColorFormat {
   Fastest = 100,
   Best = 101
 }
-
-export const COLOR_FORMAT_BGRX_BGRA: ColorFormat
-export const COLOR_FORMAT_UYVY_BGRA: ColorFormat
-export const COLOR_FORMAT_RGBX_RGBA: ColorFormat
-export const COLOR_FORMAT_UYVY_RGBA: ColorFormat
-export const COLOR_FORMAT_BGRX_BGRA_FLIPPED: ColorFormat
-export const COLOR_FORMAT_FASTEST: ColorFormat
 
 export const enum FourCC {
   UYVY = 1498831189,
@@ -104,10 +104,6 @@ export const enum AudioFormat {
   Int16Interleaved = 2
 }
 
-export const AUDIO_FORMAT_FLOAT_32_SEPARATE: AudioFormat
-export const AUDIO_FORMAT_FLOAT_32_INTERLEAVED: AudioFormat
-export const AUDIO_FORMAT_INT_16_INTERLEAVED: AudioFormat
-
 export const enum Bandwidth {
   MetadataOnly = -10,
   AudioOnly = 10,
@@ -115,10 +111,11 @@ export const enum Bandwidth {
   Highest = 100
 }
 
-export const BANDWIDTH_METADATA_ONLY: Bandwidth
-export const BANDWIDTH_AUDIO_ONLY: Bandwidth
-export const BANDWIDTH_LOWEST: Bandwidth
-export const BANDWIDTH_HIGHEST: Bandwidth
+export function find(params: {
+  showLocalSources?: boolean
+  groups?: string | string[]
+  extraIPs?: string | string[]
+}): Promise<Source[]>
 
 export function receive(params: {
   source: Source
@@ -126,7 +123,7 @@ export function receive(params: {
   bandwidth?: Bandwidth
   allowVideoFields?: boolean
   name?: string
-}): Promise<Receiver>
+}): Receiver
 
 export function send(params: {
   name: string
@@ -135,34 +132,8 @@ export function send(params: {
   clockAudio?: boolean
 }): Sender
 
-/** @deprecated use GrandioseFinder instead */
-export function find(params: GrandioseFinderOptions, waitMs?: number): Promise<Array<Source>>
+export function routing(params: {
+  name: string
+  groups?: string | string[]
+}): Routing
 
-export interface GrandioseFinderOptions {
-  // Should sources on the same system be found?
-  showLocalSources?: boolean,
-  // Show only sources in the named groups
-  groups?: string[] | string,
-  // Specific IP addresses or machine names to check
-  // These are possibly on a different VLAN and not visible over MDNS
-  extraIPs?: string[]
-}
-
-/**
- * An instance of the NDI source finder.
- * This will monitor for sources in the background, and you can poll it for the current list at useful times.
- */
-export class GrandioseFinder{
-  constructor(options?: GrandioseFinderOptions)
-
-  /** 
-   * Dispose of the finder once you are finished with it
-   * Failing to do so will block the application from terminating 
-   */
-  dispose(): void
-
-  /**
-   * Get the list of currently known Sources
-   */
-  getCurrentSources(): Array<Source>
-}

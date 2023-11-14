@@ -23,9 +23,6 @@
 #include <Processing.NDI.Lib.h>
 #include "node_api.h"
 
-#include "napi.h"
-
-
 // The three different formats of raw audio data supported by NDI utility functions
 typedef enum Grandiose_audio_format_e {
   // Default NDI audio format
@@ -66,6 +63,8 @@ napi_status checkArgs(napi_env env, napi_callback_info info, char* methodName,
 #define GRANDIOSE_ALLOCATION_FAILURE 4100
 #define GRANDIOSE_RECEIVE_CREATE_FAIL 4101
 #define GRANDIOSE_SEND_CREATE_FAIL 4102
+#define GRANDIOSE_ROUTING_CREATE_FAIL 4103
+#define GRANDIOSE_FIND_CREATE_FAIL 4104
 #define GRANDIOSE_NOT_FOUND 4040
 #define GRANDIOSE_NOT_VIDEO 4140
 #define GRANDIOSE_NOT_AUDIO 4141
@@ -84,7 +83,7 @@ struct carrier {
 };
 
 void tidyCarrier(napi_env env, carrier* c);
-int32_t rejectStatus(napi_env env, carrier* c, char* file, int32_t line);
+int32_t rejectStatus(napi_env env, carrier* c, const char* file, int32_t line);
 
 #define REJECT_STATUS if (rejectStatus(env, c, __FILE__, __LINE__) != GRANDIOSE_SUCCESS) return;
 #define REJECT_RETURN if (rejectStatus(env, c, __FILE__, __LINE__) != GRANDIOSE_SUCCESS) return promise;
@@ -116,5 +115,7 @@ bool validColorFormat(NDIlib_recv_color_format_e format);
 bool validBandwidth(NDIlib_recv_bandwidth_e bandwidth);
 bool validFrameFormat(NDIlib_frame_format_type_e format);
 bool validAudioFormat(Grandiose_audio_format_e format);
+
+napi_status makeNativeSource(napi_env env, napi_value source, NDIlib_source_t *result);
 
 #endif // GRANDIOSE_UTIL_H

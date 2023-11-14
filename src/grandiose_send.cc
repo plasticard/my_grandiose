@@ -13,6 +13,7 @@
   limitations under the License.
 */
 
+#include <string>
 #include <cstddef>
 #include <Processing.NDI.Lib.h>
 
@@ -28,6 +29,10 @@
 #include "grandiose_util.h"
 
 napi_value videoSend(napi_env env, napi_callback_info info);
+napi_value audioSend(napi_env env, napi_callback_info info);
+napi_value connections(napi_env env, napi_callback_info info);
+napi_value tally(napi_env env, napi_callback_info info);
+napi_value sourcename(napi_env env, napi_callback_info info);
 
 void sendExecute(napi_env env, void* data) {
   sendCarrier* c = (sendCarrier *) data;
@@ -46,16 +51,87 @@ void sendExecute(napi_env env, void* data) {
   }
 }
 
+/*  implicit destruction of NDI sender via garbage collection  */
 void finalizeSend(napi_env env, void* data, void* hint) {
-  printf("Releasing sender.\n");
-  NDIlib_send_destroy((NDIlib_send_instance_t) data);
+    /*  fetch NDI sender wrapper object  */
+    napi_value obj = (napi_value)hint;
+
+    /*  fetch NDI sender external object  */
+    napi_value sendValue;
+    if (napi_get_named_property(env, obj, "embedded", &sendValue) != napi_ok)
+        return;
+
+    /*  ensure it was still not manually destroyed  */
+    napi_valuetype result;
+    if (napi_typeof(env, sendValue, &result) != napi_ok)
+        return;
+    if (result != napi_external)
+        return;
+
+    /*  fetch NDI sender native object  */
+    void *sendData;
+    if (napi_get_value_external(env, sendValue, &sendData) != napi_ok)
+        return;
+    NDIlib_send_instance_t send = (NDIlib_send_instance_t)sendData;
+
+    /*  call the NDI API  */
+    NDIlib_send_destroy(send);
+}
+
+/*  explicit destruction of NDI sender via "destroy" method  */
+napi_value destroySend(napi_env env, napi_callback_info info) {
+    /*  create a new Promise carrier object  */
+    carrier *c = new carrier;
+    napi_value promise;
+    c->status = napi_create_promise(env, &c->_deferred, &promise);
+    REJECT_RETURN;
+
+    /*  fetch the NDI sender wrapper object ("this" of the "destroy" method)  */
+    size_t argc = 1;
+    napi_value args[1];
+    napi_value thisValue;
+    c->status = napi_get_cb_info(env, info, &argc, args, &thisValue, nullptr);
+    REJECT_RETURN;
+
+    /*  fetch NDI sender external object  */
+    napi_value sendValue;
+    c->status = napi_get_named_property(env, thisValue, "embedded", &sendValue);
+    REJECT_RETURN;
+
+    /*  ensure it was still not manually destroyed  */
+    napi_valuetype result;
+    if (napi_typeof(env, sendValue, &result) != napi_ok)
+        NAPI_THROW_ERROR("NDI sender already destroyed");
+    if (result == napi_external) {
+        /*  fetch NDI sender native object  */
+        void *sendData;
+        c->status = napi_get_value_external(env, sendValue, &sendData);
+        REJECT_RETURN;
+        NDIlib_send_instance_t send = (NDIlib_send_instance_t)sendData;
+
+        /*  call the NDI API  */
+        NDIlib_send_destroy(send);
+
+        /*  overwrite the "embedded" field with a non-external value
+            (to ensure that the "finalizeSend" will no longer do anything
+            once the garbage collection fires)  */
+        napi_value value;
+        napi_create_int32(env, 0, &value);
+        c->status = napi_set_named_property(env, thisValue, "embedded", value);
+        REJECT_RETURN;
+    }
+
+    napi_value undefined;
+    napi_get_undefined(env, &undefined);
+    napi_resolve_deferred(env, c->_deferred, undefined);
+
+    return promise;
 }
 
 void sendComplete(napi_env env, napi_status asyncStatus, void* data) {
   sendCarrier* c = (sendCarrier*) data;
 
   printf("Completing some send creation work.\n");
-
   if (asyncStatus != napi_ok) {
     c->status = asyncStatus;
     c->errorMsg = "Async sender creation failed to complete.";
@@ -67,9 +143,16 @@ void sendComplete(napi_env env, napi_status asyncStatus, void* data) {
   REJECT_STATUS;
 
   napi_value embedded;
-  c->status = napi_create_external(env, c->send, finalizeSend, nullptr, &embedded);
+  c->status = napi_create_external(env, c->send, finalizeSend, result, &embedded);
   REJECT_STATUS;
   c->status = napi_set_named_property(env, result, "embedded", embedded);
+  REJECT_STATUS;
+
+  napi_value destroyFn;
+  c->status = napi_create_function(env, "destroy", NAPI_AUTO_LENGTH, destroySend,
+    nullptr, &destroyFn);
+  REJECT_STATUS;
+  c->status = napi_set_named_property(env, result, "destroy", destroyFn);
   REJECT_STATUS;
 
   napi_value videoFn;
@@ -79,12 +162,33 @@ void sendComplete(napi_env env, napi_status asyncStatus, void* data) {
   c->status = napi_set_named_property(env, result, "video", videoFn);
   REJECT_STATUS;
 
-  // napi_value audioFn;
-  // c->status = napi_create_function(env, "audio", NAPI_AUTO_LENGTH, audioSend,
-  //   nullptr, &audioFn);
-  // REJECT_STATUS;
-  // c->status = napi_set_named_property(env, result, "audio", audioFn);
-  // REJECT_STATUS;
+  napi_value audioFn;
+  c->status = napi_create_function(env, "audio", NAPI_AUTO_LENGTH, audioSend,
+    nullptr, &audioFn);
+  REJECT_STATUS;
+  c->status = napi_set_named_property(env, result, "audio", audioFn);
+  REJECT_STATUS;
+
+  napi_value connectionsFn;
+  c->status = napi_create_function(env, "connections", NAPI_AUTO_LENGTH, connections,
+    nullptr, &connectionsFn);
+  REJECT_STATUS;
+  c->status = napi_set_named_property(env, result, "connections", connectionsFn);
+  REJECT_STATUS;
+
+  napi_value tallyFn;
+  c->status = napi_create_function(env, "connections", NAPI_AUTO_LENGTH, tally,
+    nullptr, &tallyFn);
+  REJECT_STATUS;
+  c->status = napi_set_named_property(env, result, "tally", tallyFn);
+  REJECT_STATUS;
+
+  napi_value sourcenameFn;
+  c->status = napi_create_function(env, "sourcename", NAPI_AUTO_LENGTH, sourcename,
+    nullptr, &sourcenameFn);
+  REJECT_STATUS;
+  c->status = napi_set_named_property(env, result, "sourcename", sourcenameFn);
+  REJECT_STATUS;
 
   // napi_value metadataFn;
   // c->status = napi_create_function(env, "metadata", NAPI_AUTO_LENGTH, metadataReceive,
@@ -100,7 +204,8 @@ void sendComplete(napi_env env, napi_status asyncStatus, void* data) {
   // c->status = napi_set_named_property(env, result, "data", dataFn);
   // REJECT_STATUS;
 
-  napi_value name, groups, clockVideo, clockAudio;
+  // napi_value name, groups, clockVideo, clockAudio;
+  napi_value name, clockVideo, clockAudio;
   c->status = napi_create_string_utf8(env, c->name, NAPI_AUTO_LENGTH, &name);
   REJECT_STATUS;
   c->status = napi_set_named_property(env, result, "name", name);
@@ -150,7 +255,8 @@ napi_value send(napi_env env, napi_callback_info info) {
     GRANDIOSE_INVALID_ARGS);
 
   napi_value config = args[0];
-  napi_value name, groups, clockVideo, clockAudio;
+  // napi_value name, groups, clockVideo, clockAudio;
+  napi_value name, clockVideo, clockAudio;
 
   c->status = napi_get_named_property(env, config, "name", &name);
   REJECT_RETURN;
@@ -331,8 +437,28 @@ napi_value videoSend(napi_env env, napi_callback_info info) {
     REJECT_RETURN;
     c->videoFrame.picture_aspect_ratio = (float) pictureAspectRatio;
 
-    // TODO: timestamps
-    // TODO: timecode
+    c->videoFrame.timecode = NDIlib_send_timecode_synthesize;
+    c->status = napi_get_named_property(env, config, "timecode", &param);
+    REJECT_RETURN;
+    c->status = napi_typeof(env, param, &type);
+    REJECT_RETURN;
+    if (type != napi_undefined) {
+        if (type == napi_number) {
+            c->status = napi_get_value_int64(env, param, &c->videoFrame.timecode);
+            REJECT_RETURN;
+        }
+        else if (type == napi_bigint) {
+            bool lossless;
+            c->status = napi_get_value_bigint_int64(env, param, &c->videoFrame.timecode, &lossless);
+            REJECT_RETURN;
+        }
+        else
+            REJECT_ERROR_RETURN("timecode value must be a number or bigint", GRANDIOSE_INVALID_ARGS);
+    }
+
+    /*  initialize also timestamp (receiver-side only) and metadata  */
+    c->videoFrame.timestamp = 0;
+    c->videoFrame.p_metadata = NULL;
 
     c->status = napi_get_named_property(env, config, "frameFormatType", &param);
     REJECT_RETURN;
@@ -403,3 +529,266 @@ napi_value videoSend(napi_env env, napi_callback_info info) {
 
   return promise;
 }
+
+void audioSendExecute(napi_env env, void* data) {
+  sendDataCarrier* c = (sendDataCarrier*) data;
+
+  NDIlib_send_send_audio_v3(c->send, &c->audioFrame);
+}
+
+void audioSendComplete(napi_env env, napi_status asyncStatus, void* data) {
+  sendDataCarrier* c = (sendDataCarrier*) data;
+  napi_value result;
+  napi_status status;
+
+  c->status = napi_delete_reference(env, c->sourceBufferRef);
+  REJECT_STATUS;
+
+  if (asyncStatus != napi_ok) {
+    c->status = asyncStatus;
+    c->errorMsg = "Async audio frame send failed to complete.";
+  }
+  REJECT_STATUS;
+
+  c->status = napi_create_object(env, &result);
+  REJECT_STATUS;
+  status = napi_resolve_deferred(env, c->_deferred, result);
+  FLOATING_STATUS;
+
+  tidyCarrier(env, c);
+}
+
+napi_value audioSend(napi_env env, napi_callback_info info) {
+  napi_valuetype type;
+  sendDataCarrier* c = new sendDataCarrier;
+
+  napi_value promise;
+  c->status = napi_create_promise(env, &c->_deferred, &promise);
+  REJECT_RETURN;
+
+  size_t argc = 1;
+  napi_value args[1];
+  napi_value thisValue;
+  c->status = napi_get_cb_info(env, info, &argc, args, &thisValue, nullptr);
+  REJECT_RETURN;
+
+  napi_value sendValue;
+  c->status = napi_get_named_property(env, thisValue, "embedded", &sendValue);
+  REJECT_RETURN;
+  void* sendData;
+  c->status = napi_get_value_external(env, sendValue, &sendData);
+  c->send = (NDIlib_send_instance_t) sendData;
+  REJECT_RETURN;
+
+  if (argc >= 1) {
+    napi_value config;
+    config = args[0];
+    c->status = napi_typeof(env, config, &type);
+    REJECT_RETURN;
+    if (type != napi_object) REJECT_ERROR_RETURN(
+      "frame must be an object",
+      GRANDIOSE_INVALID_ARGS);
+
+    bool isArray, isBuffer;
+    c->status = napi_is_array(env, config, &isArray);
+    REJECT_RETURN;
+    if (isArray) REJECT_ERROR_RETURN(
+      "Argument to audio send cannot be an array.",
+      GRANDIOSE_INVALID_ARGS);
+
+    napi_value param;
+    c->status = napi_get_named_property(env, config, "sampleRate", &param);
+    REJECT_RETURN;
+    c->status = napi_typeof(env, param, &type);
+    REJECT_RETURN;
+    if (type != napi_number) REJECT_ERROR_RETURN(
+      "sampleRate value must be a number",
+      GRANDIOSE_INVALID_ARGS);
+    c->status = napi_get_value_int32(env, param, &c->audioFrame.sample_rate);
+    REJECT_RETURN;
+
+    c->status = napi_get_named_property(env, config, "noChannels", &param);
+    REJECT_RETURN;
+    c->status = napi_typeof(env, param, &type);
+    REJECT_RETURN;
+    if (type != napi_number) REJECT_ERROR_RETURN(
+      "noChannels value must be a number",
+      GRANDIOSE_INVALID_ARGS);
+    c->status = napi_get_value_int32(env, param, &c->audioFrame.no_channels);
+    REJECT_RETURN;
+
+    c->status = napi_get_named_property(env, config, "noSamples", &param);
+    REJECT_RETURN;
+    c->status = napi_typeof(env, param, &type);
+    REJECT_RETURN;
+    if (type != napi_number) REJECT_ERROR_RETURN(
+      "Samples value must be a number",
+      GRANDIOSE_INVALID_ARGS);
+    c->status = napi_get_value_int32(env, param, &c->audioFrame.no_samples);
+    REJECT_RETURN;
+
+    c->audioFrame.timecode = NDIlib_send_timecode_synthesize;
+    c->status = napi_get_named_property(env, config, "timecode", &param);
+    REJECT_RETURN;
+    c->status = napi_typeof(env, param, &type);
+    REJECT_RETURN;
+    if (type != napi_undefined) {
+        if (type == napi_number) {
+            c->status = napi_get_value_int64(env, param, &c->audioFrame.timecode);
+            REJECT_RETURN;
+        }
+        else if (type == napi_bigint) {
+            bool lossless;
+            c->status = napi_get_value_bigint_int64(env, param, &c->audioFrame.timecode, &lossless);
+            REJECT_RETURN;
+        }
+        else
+            REJECT_ERROR_RETURN("timecode value must be a number or bigint", GRANDIOSE_INVALID_ARGS);
+    }
+
+    /*  initialize also timestamp (receiver-side only) and metadata  */
+    c->audioFrame.timestamp = 0;
+    c->audioFrame.p_metadata = NULL;
+
+    c->status = napi_get_named_property(env, config, "channelStrideBytes", &param);
+    REJECT_RETURN;
+    c->status = napi_typeof(env, param, &type);
+    REJECT_RETURN;
+    if (type != napi_number) REJECT_ERROR_RETURN(
+      "channelStrideBytes value must be a number",
+      GRANDIOSE_INVALID_ARGS);
+    c->status = napi_get_value_int32(env, param, &c->audioFrame.channel_stride_in_bytes);
+    REJECT_RETURN;
+
+    napi_value audioBuffer;
+    c->status = napi_get_named_property(env, config, "data", &audioBuffer);
+    REJECT_RETURN;
+    c->status = napi_is_buffer(env, audioBuffer, &isBuffer);
+    REJECT_RETURN;
+    if (!isBuffer) REJECT_ERROR_RETURN(
+      "data must be provided as a Node Buffer",
+      GRANDIOSE_INVALID_ARGS);
+    void * data;
+    size_t length;
+    c->status = napi_get_buffer_info(env, audioBuffer, &data, &length);
+    REJECT_RETURN;
+    c->audioFrame.p_data = (uint8_t *) data;
+    c->status = napi_create_reference(env, audioBuffer, 1, &c->sourceBufferRef);
+    REJECT_RETURN;
+
+    c->status = napi_get_named_property(env, config, "fourCC", &param);
+    REJECT_RETURN;
+    c->status = napi_typeof(env, param, &type);
+    REJECT_RETURN;
+    if (type != napi_number) REJECT_ERROR_RETURN(
+      "fourCC value must be a number",
+      GRANDIOSE_INVALID_ARGS);
+    int32_t fourCC;
+    c->status = napi_get_value_int32(env, param, &fourCC);
+    REJECT_RETURN;
+    c->audioFrame.FourCC = (NDIlib_FourCC_audio_type_e)fourCC;
+
+  } else REJECT_ERROR_RETURN(
+      "frame not provided",
+    GRANDIOSE_INVALID_ARGS);
+
+  napi_value resource_name;
+  c->status = napi_create_string_utf8(env, "AudioSend", NAPI_AUTO_LENGTH, &resource_name);
+  REJECT_RETURN;
+  c->status = napi_create_async_work(env, NULL, resource_name, audioSendExecute,
+    audioSendComplete, c, &c->_request);
+  REJECT_RETURN;
+  c->status = napi_queue_async_work(env, c->_request);
+  REJECT_RETURN;
+
+  return promise;
+}
+
+napi_value connections(napi_env env, napi_callback_info info) {
+  napi_status status;
+
+  size_t argc = 1;
+  napi_value args[1];
+  napi_value thisValue;
+  status = napi_get_cb_info(env, info, &argc, args, &thisValue, nullptr);
+  CHECK_STATUS;
+
+  napi_value sendValue;
+  status = napi_get_named_property(env, thisValue, "embedded", &sendValue);
+  CHECK_STATUS;
+  void *sendData;
+  status = napi_get_value_external(env, sendValue, &sendData);
+  CHECK_STATUS;
+  NDIlib_send_instance_t sender = (NDIlib_send_instance_t)sendData;
+
+  int conns = NDIlib_send_get_no_connections(sender, 0);
+  napi_value result;
+  status = napi_create_int32(env, (int32_t)conns, &result);
+  CHECK_STATUS;
+
+  return result;
+}
+
+napi_value tally(napi_env env, napi_callback_info info) {
+  napi_status status;
+
+  size_t argc = 1;
+  napi_value args[1];
+  napi_value thisValue;
+  status = napi_get_cb_info(env, info, &argc, args, &thisValue, nullptr);
+  CHECK_STATUS;
+
+  napi_value sendValue;
+  status = napi_get_named_property(env, thisValue, "embedded", &sendValue);
+  CHECK_STATUS;
+  void *sendData;
+  status = napi_get_value_external(env, sendValue, &sendData);
+  CHECK_STATUS;
+  NDIlib_send_instance_t sender = (NDIlib_send_instance_t)sendData;
+
+  NDIlib_tally_t tally;
+  bool changed = NDIlib_send_get_tally(sender, &tally, 0);
+
+  napi_value result;
+  status = napi_create_object(env, &result);
+  CHECK_STATUS;
+
+  napi_value value;
+  napi_get_boolean(env, changed, &value);
+  status = napi_set_named_property(env, result, "changed", value);
+  CHECK_STATUS;
+  napi_get_boolean(env, tally.on_program, &value);
+  status = napi_set_named_property(env, result, "on_program", value);
+  CHECK_STATUS;
+  napi_get_boolean(env, tally.on_preview, &value);
+  status = napi_set_named_property(env, result, "on_preview", value);
+  CHECK_STATUS;
+
+  return result;
+}
+
+napi_value sourcename(napi_env env, napi_callback_info info) {
+  napi_status status;
+
+  size_t argc = 1;
+  napi_value args[1];
+  napi_value thisValue;
+  status = napi_get_cb_info(env, info, &argc, args, &thisValue, nullptr);
+  CHECK_STATUS;
+
+  napi_value sendValue;
+  status = napi_get_named_property(env, thisValue, "embedded", &sendValue);
+  CHECK_STATUS;
+  void *sendData;
+  status = napi_get_value_external(env, sendValue, &sendData);
+  CHECK_STATUS;
+  NDIlib_send_instance_t sender = (NDIlib_send_instance_t)sendData;
+
+  const NDIlib_source_t *source = NDIlib_send_get_source_name(sender);
+  napi_value result;
+  status = napi_create_string_utf8(env, source->p_ndi_name, NAPI_AUTO_LENGTH, &result);
+  CHECK_STATUS;
+
+  return result;
+}
+
