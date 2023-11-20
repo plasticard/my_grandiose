@@ -15,6 +15,10 @@
 
 const path = require('path');
 console.log('path:', path);
+console.log('__dirname:', __dirname);
+console.log('path.resolve(__dirname):', path.resolve(__dirname));
+console.log('bindings:', require('bindings'));
+
 const addon = require('bindings')({
   bindings: 'grandiose',
   module_root: path.resolve(__dirname),
