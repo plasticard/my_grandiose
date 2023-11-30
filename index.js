@@ -13,17 +13,24 @@
   limitations under the License.
 */
 
-const path = require('path');
-console.log('path:', path);
-console.log('__dirname:', __dirname);
-console.log('path.resolve(__dirname):', path.resolve(__dirname));
-console.log('bindings:', require('bindings'));
+// const path = require('path');
+// console.log('path:', path);
+// console.log('__dirname:', __dirname);
+// console.log('path.resolve(__dirname):', path.resolve(__dirname));
+// console.log('bindings:', require('bindings'));
+
+// const addon = require('bindings')({
+//   bindings: 'grandiose',
+//   module_root: path.resolve(__dirname),
+// });
 
 const addon = require('bindings')({
-  bindings: 'grandiose',
-  module_root: path.resolve(__dirname),
+  "bindings": "grandiose",
+  "module_root": process.cwd() + "/node_modules/grandiose",
 });
-console.log('addon:', addon);
+
+
+// console.log('addon:', addon);
 
 const COLOR_FORMAT_BGRX_BGRA = 0; // No alpha channel: BGRX, Alpha channel: BGRA
 const COLOR_FORMAT_UYVY_BGRA = 1; // No alpha channel: UYVY, Alpha channel: BGRA
